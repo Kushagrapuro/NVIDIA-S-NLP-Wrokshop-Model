@@ -1,0 +1,161 @@
+# Import useful utilities for grading
+import os
+import json
+import glob
+from omegaconf import OmegaConf
+
+def get_latest_model():  
+    nemo_model_paths = glob.glob('nemo_experiments/TextClassification/*/checkpoints/*.nemo')
+    # Sort newest first
+    nemo_model_paths.sort(reverse=True)
+    return nemo_model_paths[0]
+
+DATA_DIR = '/dli/task/data/federalist_papers_HM'
+!ls $DATA_DIR
+
+
+
+
+!sed 1d $DATA_DIR/train.tsv > $DATA_DIR/train_nemo_format.tsv
+!sed 1d $DATA_DIR/dev.tsv > $DATA_DIR/dev_nemo_format.tsv
+
+
+print("*****\ntrain_nemo_format.tsv sample\n*****")
+!head -n 3 $DATA_DIR/train_nemo_format.tsv
+print("\n\n*****\ndev_nemo_format.tsv sample\n*****")
+!head -n 3 $DATA_DIR/dev_nemo_format.tsv
+
+
+
+
+
+import os.path
+DATA_DIR = '/dli/task/data/federalist_papers_HM'
+step1 = []
+try:
+    with open(os.path.join(DATA_DIR,'train_nemo_format.tsv')) as f:
+        content = f.readlines()
+        step1 += content[:2]
+    with open(os.path.join(DATA_DIR,'dev_nemo_format.tsv')) as f:
+        content = f.readlines()
+        step1 += content[:2]
+except:
+    pass
+                
+with open("my_assessment/step1.json", "w") as outfile: 
+    json.dump(step1, outfile) 
+
+
+
+
+CONFIG_DIR = "/dli/task/nemo/examples/nlp/text_classification/conf"
+CONFIG_FILE = "text_classification_config.yaml"
+
+config = OmegaConf.load(CONFIG_DIR + "/" + CONFIG_FILE)
+print(OmegaConf.to_yaml(config.model))
+from nemo.collections import nlp as nemo_nlp
+nemo_nlp.modules.get_pretrained_lm_models_list()
+NUM_CLASSES = 2
+MAX_SEQ_LENGTH = 64 
+BATCH_SIZE = 32
+PATH_TO_TRAIN_FILE = "/dli/task/data/federalist_papers_HM/train_nemo_format.tsv"
+PATH_TO_VAL_FILE = "/dli/task/data/federalist_papers_HM/dev_nemo_format.tsv"
+PRETRAINED_MODEL_NAME = 'bert-base-uncased' # change as desired
+LR = 1e-4 # change as desired
+
+
+
+with open("my_assessment/step2.json", "w") as outfile: 
+    json.dump([MAX_SEQ_LENGTH, NUM_CLASSES, BATCH_SIZE], outfile) 
+
+
+
+print(OmegaConf.to_yaml(config.trainer))
+print(OmegaConf.to_yaml(config.exp_manager))
+
+
+
+MAX_EPOCHS = 10 
+AMP_LEVEL = 'O1'
+PRECISION = 16
+
+
+
+with open("my_assessment/step3.json", "w") as outfile: 
+    json.dump([MAX_EPOCHS, AMP_LEVEL, PRECISION], outfile) 
+
+
+
+TC_DIR = "/dli/task/nemo/examples/nlp/text_classification"
+
+
+!python $TC_DIR/text_classification_with_bert.py \
+        model.dataset.num_classes=$NUM_CLASSES \
+        model.dataset.max_seq_length=$MAX_SEQ_LENGTH \
+        model.train_ds.file_path=$PATH_TO_TRAIN_FILE \
+        model.validation_ds.file_path=$PATH_TO_VAL_FILE \
+        model.infer_samples=[] \
+        trainer.max_epochs=$MAX_EPOCHS \
+        model.language_model.pretrained_model_name=$PRETRAINED_MODEL_NAME \
+        trainer.amp_level=$AMP_LEVEL \
+        trainer.precision=$PRECISION \
+        model.train_ds.batch_size=$BATCH_SIZE \
+        model.validation_ds.batch_size=$BATCH_SIZE
+cmd_log = os.path.join(os.path.dirname(os.path.dirname(get_latest_model())),'cmd-args.log')
+lightning_logs = os.path.join(os.path.dirname(os.path.dirname(get_latest_model())),'lightning_logs.txt')
+
+with open(cmd_log, "r") as f:
+    cmd = f.read()
+    cmd_list = cmd.split()
+with open("my_assessment/step4.json", "w") as outfile: 
+    json.dump(cmd_list, outfile) 
+    
+with open(lightning_logs, "r") as f:
+    log = f.readlines()
+with open("my_assessment/step4_lightning.json", "w") as outfile:
+    json.dump(log, outfile)
+from nemo.collections import nlp as nemo_nlp
+
+# Instantiate the model by restoring from the latest .nemo checkpoint
+model = nemo_nlp.models.TextClassificationModel.restore_from(get_latest_model())
+
+# Find the latest model path
+DATA_DIR = '/dli/task/data/federalist_papers_HM'
+
+test_files = [
+    'test49.tsv',
+    'test50.tsv',
+    'test51.tsv',
+    'test52.tsv',
+    'test53.tsv',
+    'test54.tsv', 
+    'test55.tsv',
+    'test56.tsv',
+    'test57.tsv',
+    'test62.tsv',
+]
+results = []
+for test_file in test_files:
+    # get as list and remove header row
+    filepath = os.path.join(DATA_DIR, test_file)
+    with open(filepath, "r") as f:
+        lines = f.readlines()
+    del lines[0]
+    
+    results.append(model.classifytext(lines, batch_size = 1, max_seq_length = 256))
+print(results)
+
+
+
+author = []
+for result in results:
+    avg_result = sum(result) / len(result)
+    if avg_result < 0.5:
+        author.append("HAMILTON")
+        print("HAMILTON")
+    else:
+        author.append("MADISON")
+        print("MADISON")
+        
+with open("my_assessment/step5.json", "w") as outfile: 
+    json.dump(author, outfile) 
